@@ -1,0 +1,18 @@
+{
+  "test_examples": 5427,
+  "number_of_labels": 28,
+  "baseline_tfidf_balanced": {
+    "threshold_selected_on_validation": 0.59,
+    "macro_f1": 0.45323278237281667,
+    "micro_f1": 0.5117142857142857,
+    "macro_precision": 0.41713074592855637,
+    "macro_recall": 0.5103491655556929
+  },
+  "distilbert": {
+    "threshold_selected_on_validation": 0.14,
+    "macro_f1": 0.47196110404603864,
+    "micro_f1": 0.5653567612489612,
+    "macro_precision": 0.4217754121718625,
+    "macro_recall": 0.5872592312807113
+  }
+}
