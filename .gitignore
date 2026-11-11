@@ -1,0 +1,9 @@
+env/
+__pycache__/
+*.egg-info/
+.ipynb_checkpoints/
+data/
+models/
+*.pt
+*.bin
+.env
