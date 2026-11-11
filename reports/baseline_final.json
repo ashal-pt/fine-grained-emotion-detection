@@ -1,0 +1,16 @@
+{
+  "plain": {
+    "global_threshold": 0.09,
+    "macro_f1_global": 0.41122547409444826,
+    "macro_f1_per_class_optimistic": 0.4641081429181514,
+    "macro_f1_per_class_honest": 0.4486562463870472,
+    "per_class_thresholds_on_grid_edge": 4
+  },
+  "balanced": {
+    "global_threshold": 0.59,
+    "macro_f1_global": 0.46631550328354016,
+    "macro_f1_per_class_optimistic": 0.4925623684718728,
+    "macro_f1_per_class_honest": 0.45716892891625527,
+    "per_class_thresholds_on_grid_edge": 0
+  }
+}

@@ -62,14 +62,14 @@ def apply_class_thresholds(probs, thresholds):
     return (probs >= thresholds[None, :]).astype(int)
 
 
-def split_half_estimate(y_true, probs, seed=42):
+def split_half_estimate(y_true, probs, seed=42, grid=None):
     """Honest estimate of per-class tuning: tune on one half, score on the other."""
     rng = np.random.default_rng(seed)
     idx = rng.permutation(len(y_true))
     a, b = idx[: len(idx) // 2], idx[len(idx) // 2:]
     scores = []
     for fit, test in ((a, b), (b, a)):
-        th = tune_per_class_thresholds(y_true[fit], probs[fit])
+        th = tune_per_class_thresholds(y_true[fit], probs[fit], grid=grid)
         pred = apply_class_thresholds(probs[test], th)
         scores.append(multilabel_metrics(y_true[test], pred)["macro_f1"])
     return float(np.mean(scores))
