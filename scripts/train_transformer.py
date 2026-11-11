@@ -1,5 +1,8 @@
-"""Run a tiny CPU training check for multi-label GoEmotions."""
+"""Fine-tune DistilBERT for multi-label GoEmotions classification."""
 
+import json
+
+import numpy as np
 import torch
 from transformers import (
     AutoModelForSequenceClassification,
@@ -7,14 +10,21 @@ from transformers import (
     DataCollatorWithPadding,
     Trainer,
     TrainingArguments,
+    set_seed,
 )
 
+from emotion_nlp.config import REPORTS_DIR, SEED
 from emotion_nlp.data import drop_leaked_train, get_label_names, load_goemotions
+from emotion_nlp.evaluate import multilabel_metrics
 
 MODEL_NAME = "distilbert-base-uncased"
 MAX_LENGTH = 128
-NUM_TRAIN_EXAMPLES = 16
-NUM_EVAL_EXAMPLES = 8
+BATCH_SIZE = 4
+NUM_EPOCHS = 1
+MODEL_OUTPUT_DIR = "models/distilbert-goemotions"
+
+set_seed(SEED)
+REPORTS_DIR.mkdir(parents=True, exist_ok=True)
 
 raw_dataset = load_goemotions()
 label_names = get_label_names(raw_dataset)
@@ -43,7 +53,7 @@ def prepare_batch(batch):
     return tokenized
 
 
-# Drop the original text, label IDs, and dataset ID after preparing model inputs.
+# Keep only model inputs and the new 28-value labels.
 original_columns = dataset["train"].column_names
 tokenized_dataset = dataset.map(
     prepare_batch,
@@ -51,12 +61,12 @@ tokenized_dataset = dataset.map(
     remove_columns=original_columns,
 )
 
-train_data = tokenized_dataset["train"].select(range(NUM_TRAIN_EXAMPLES))
-eval_data = tokenized_dataset["validation"].select(range(NUM_EVAL_EXAMPLES))
+train_data = tokenized_dataset["train"]
+validation_data = tokenized_dataset["validation"]
 
 
 class MultiLabelDataCollator:
-    """Pad token inputs and convert multi-label targets to float tensors."""
+    """Pad token inputs and convert labels to floating-point tensors."""
 
     def __init__(self, tokenizer):
         self.padding_collator = DataCollatorWithPadding(tokenizer=tokenizer)
@@ -68,11 +78,9 @@ class MultiLabelDataCollator:
             "token_type_ids",
             "labels",
         }
-
-        # Ignore metadata such as text or id if any extra column remains.
         features = [
-            {key: value for key, value in feature.items() if key in allowed_keys}
-            for feature in features
+            {key: value for key, value in item.items() if key in allowed_keys}
+            for item in features
         ]
 
         batch = self.padding_collator(features)
@@ -82,13 +90,25 @@ class MultiLabelDataCollator:
 
 collator = MultiLabelDataCollator(tokenizer)
 
-# Confirm the labels have the right numeric type and 28-label shape.
-probe = collator([train_data[i] for i in range(4)])
-print("Batch keys:", list(probe.keys()))
+# Verify one batch before starting the longer run.
+probe = collator([train_data[i] for i in range(BATCH_SIZE)])
 print("Batch labels:", probe["labels"].dtype, probe["labels"].shape)
-
 assert probe["labels"].dtype == torch.float32
-assert probe["labels"].shape == (4, num_labels)
+assert probe["labels"].shape == (BATCH_SIZE, num_labels)
+
+
+def compute_metrics(eval_prediction):
+    """Report validation F1 at the standard 0.5 probability threshold."""
+    logits = eval_prediction.predictions
+    if isinstance(logits, tuple):
+        logits = logits[0]
+
+    probabilities = 1.0 / (1.0 + np.exp(-np.clip(logits, -40, 40)))
+    predictions = (probabilities >= 0.5).astype(np.int8)
+    true_labels = eval_prediction.label_ids.astype(np.int8)
+
+    return multilabel_metrics(true_labels, predictions)
+
 
 model = AutoModelForSequenceClassification.from_pretrained(
     MODEL_NAME,
@@ -97,30 +117,51 @@ model = AutoModelForSequenceClassification.from_pretrained(
 )
 
 training_args = TrainingArguments(
-    output_dir="reports/transformer_smoke",
-    use_cpu=True,
-    max_steps=2,
-    per_device_train_batch_size=4,
-    per_device_eval_batch_size=4,
-    logging_steps=1,
-    save_strategy="no",
+    output_dir=MODEL_OUTPUT_DIR,
+    use_cpu=False,
+    num_train_epochs=NUM_EPOCHS,
+    per_device_train_batch_size=BATCH_SIZE,
+    per_device_eval_batch_size=8,
+    eval_strategy="epoch",
+    save_strategy="epoch",
+    load_best_model_at_end=True,
+    metric_for_best_model="eval_loss",
+    greater_is_better=False,
+    save_total_limit=1,
+    logging_strategy="epoch",
     report_to="none",
+    seed=SEED,
 )
 
 trainer = Trainer(
     model=model,
     args=training_args,
     train_dataset=train_data,
+    eval_dataset=validation_data,
     data_collator=collator,
     processing_class=tokenizer,
+    compute_metrics=compute_metrics,
 )
 
-print(f"Labels: {num_labels}")
-print(f"Training examples: {len(train_data)}")
-print("Starting 2-step smoke run...")
+print(f"Training examples: {len(train_data):,}")
+print(f"Validation examples: {len(validation_data):,}")
+print(f"Number of labels: {num_labels}")
+print(f"Training for {NUM_EPOCHS} epoch on CPU...")
+print("Training device:", trainer.args.device)
 
 trainer.train()
 
-print("\nEvaluating the tiny validation sample...")
-evaluation_results = trainer.evaluate(eval_dataset=eval_data)
-print(evaluation_results)
+# Trainer reloads the best checkpoint according to validation loss.
+validation_metrics = trainer.evaluate(eval_dataset=validation_data)
+print("\nValidation metrics:")
+print(validation_metrics)
+
+trainer.save_model(MODEL_OUTPUT_DIR)
+tokenizer.save_pretrained(MODEL_OUTPUT_DIR)
+
+metrics_path = REPORTS_DIR / "transformer_validation.json"
+with metrics_path.open("w", encoding="utf-8") as file:
+    json.dump(validation_metrics, file, indent=2)
+
+print(f"\nSaved model to: {MODEL_OUTPUT_DIR}")
+print(f"Saved validation metrics to: {metrics_path}")
