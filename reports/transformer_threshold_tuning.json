@@ -1,0 +1,15 @@
+{
+  "threshold_selected_on_validation": 0.14,
+  "validation_at_0.5": {
+    "macro_f1": 0.40223877999582786,
+    "micro_f1": 0.5701529400588962,
+    "macro_precision": 0.5986178803575813,
+    "macro_recall": 0.3394500006560573
+  },
+  "validation_at_tuned_threshold": {
+    "macro_f1": 0.4829931428296276,
+    "micro_f1": 0.5714456106870229,
+    "macro_precision": 0.4350549856487015,
+    "macro_recall": 0.5936875513504243
+  }
+}
